@@ -1,0 +1,267 @@
+# ============================================================
+# ALERTAS GRAFANA — Loki Log Monitoring
+# ============================================================
+
+apiVersion: 1
+
+groups:
+  # ----------------------------------------------------------
+  # Grupo 1: Erros de Aplicação
+  # ----------------------------------------------------------
+  - name: application_errors
+    folder: Loki Alerts
+    interval: 1m
+    rules:
+
+      - uid: alert-error-rate-high
+        title: "🔴 Alta Taxa de Erros"
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: loki
+            model:
+              expr: 'sum(rate({job=~".+"} |= "error" [5m]))'
+              intervalMs: 1000
+              maxDataPoints: 43200
+              queryType: range
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0.5]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+              refId: C
+              type: classic_conditions
+        noDataState: NoData
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: "Taxa de erros acima de 0.5/s nos últimos 5 minutos"
+          description: "Job {{ $labels.job }} está gerando muitos erros. Verifique os logs imediatamente."
+          runbook_url: "https://wiki.interna/runbooks/high-error-rate"
+        labels:
+          severity: critical
+          team: platform
+
+      - uid: alert-error-spike
+        title: "⚠️ Pico de Erros Detectado"
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: loki
+            model:
+              expr: 'sum(count_over_time({job=~".+"} |= "error" [10m]))'
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [100]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+              refId: C
+              type: classic_conditions
+        noDataState: NoData
+        execErrState: Alerting
+        for: 1m
+        annotations:
+          summary: "Mais de 100 erros nos últimos 10 minutos"
+          description: "Volume anormal de erros detectado. Investigar causa raiz."
+        labels:
+          severity: warning
+          team: platform
+
+  # ----------------------------------------------------------
+  # Grupo 2: Alertas de Sistema
+  # ----------------------------------------------------------
+  - name: system_alerts
+    folder: Loki Alerts
+    interval: 1m
+    rules:
+
+      - uid: alert-no-logs
+        title: "🔇 Ausência de Logs (Silêncio)"
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: loki
+            model:
+              expr: 'sum(rate({job="varlogs"} [5m]))'
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: lt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+              refId: C
+              type: classic_conditions
+        noDataState: Alerting
+        execErrState: Alerting
+        for: 5m
+        annotations:
+          summary: "Nenhum log recebido nos últimos 5 minutos"
+          description: "Possível falha no Promtail ou na aplicação. Verificar conectividade."
+        labels:
+          severity: warning
+          team: platform
+
+      - uid: alert-oom-killed
+        title: "💀 OOMKilled Detectado"
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: loki
+            model:
+              expr: 'sum(count_over_time({job="docker"} |= "OOMKilled" [5m]))'
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [0]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+              refId: C
+              type: classic_conditions
+        noDataState: NoData
+        execErrState: Alerting
+        for: 0m
+        annotations:
+          summary: "Container morto por falta de memória"
+          description: "Um container foi encerrado por OOMKill. Revise os limites de memória."
+        labels:
+          severity: critical
+          team: platform
+
+  # ----------------------------------------------------------
+  # Grupo 3: Alertas de Segurança
+  # ----------------------------------------------------------
+  - name: security_alerts
+    folder: Loki Alerts
+    interval: 2m
+    rules:
+
+      - uid: alert-unauthorized-access
+        title: "🔐 Tentativas de Acesso Não Autorizado"
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: loki
+            model:
+              expr: 'sum(count_over_time({job=~".+"} |= "401" [5m]))'
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [20]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+              refId: C
+              type: classic_conditions
+        noDataState: NoData
+        execErrState: Alerting
+        for: 2m
+        annotations:
+          summary: "Mais de 20 erros 401 em 5 minutos"
+          description: "Possível ataque de força bruta ou token inválido em circulação."
+        labels:
+          severity: critical
+          team: security
+
+      - uid: alert-forbidden-access
+        title: "🚫 Acessos Proibidos (403)"
+        condition: C
+        data:
+          - refId: A
+            datasourceUid: loki
+            model:
+              expr: 'sum(count_over_time({job=~".+"} |= "403" [10m]))'
+              refId: A
+          - refId: C
+            datasourceUid: __expr__
+            model:
+              conditions:
+                - evaluator:
+                    params: [10]
+                    type: gt
+                  operator:
+                    type: and
+                  query:
+                    params: [A]
+                  reducer:
+                    params: []
+                    type: last
+              refId: C
+              type: classic_conditions
+        noDataState: NoData
+        execErrState: Alerting
+        for: 3m
+        annotations:
+          summary: "Mais de 10 erros 403 em 10 minutos"
+          description: "Verificar se há tentativa de acesso a recursos restritos."
+        labels:
+          severity: warning
+          team: security
+
+# ============================================================
+# CANAIS DE NOTIFICAÇÃO (Contact Points)
+# Configure em: Alerting → Contact Points no Grafana
+# ============================================================
+#
+# Exemplos de destinos suportados:
+#
+# Slack:
+#   type: slack
+#   settings:
+#     url: https://hooks.slack.com/services/XXX/YYY/ZZZ
+#     channel: "#alertas"
+#
+# Email:
+#   type: email
+#   settings:
+#     addresses: time@empresa.com
+#
+# PagerDuty:
+#   type: pagerduty
+#   settings:
+#     integrationKey: sua-integration-key
